@@ -1,0 +1,178 @@
+name: food-delivery
+
+x-app-env: &app-env
+  POSTGRES_DSN: postgresql://${POSTGRES_USER:-food}:${POSTGRES_PASSWORD:-food_pass}@postgres:5432/${POSTGRES_DB:-food_delivery}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-food}:${RABBITMQ_PASSWORD:-food_pass}@rabbitmq:5672/
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+  ORDERS_QUEUE: orders
+
+services:
+  # ---------- дані ----------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-food}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-food_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-food_delivery}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-food}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-food_pass}
+    volumes:
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    ports:
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # ---------- застосунок ----------
+  generator:
+    build:
+      context: ./services
+      dockerfile: generator/Dockerfile
+    environment:
+      <<: *app-env
+      SERVICE_NAME: generator
+      ORDERS_PER_MINUTE: ${ORDERS_PER_MINUTE:-40}
+      BROKEN_ORDER_CHANCE: "0.01"
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./services
+      dockerfile: worker/Dockerfile
+    environment:
+      <<: *app-env
+      SERVICE_NAME: worker
+      ANALYTICS_INTERVAL: "15"
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    restart: unless-stopped
+
+  auth:
+    build:
+      context: ./services
+      dockerfile: auth/Dockerfile
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-please}
+      AUTH_ADMIN_PASSWORD: ${AUTH_ADMIN_PASSWORD:-admin123}
+      AUTH_DB: /data/auth.db
+      SESSION_HOURS: "8"
+    volumes:
+      - auth-data:/data
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-food}:${POSTGRES_PASSWORD:-food_pass}@postgres:5432/${POSTGRES_DB:-food_delivery}?sslmode=disable
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  # ---------- моніторинг ----------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.external-url=http://localhost:8080/prometheus/
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.1.1
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    user: "0"
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./monitoring/tempo/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SERVER_ROOT_URL: http://localhost:8080/
+      # вхід виконує наш auth-сервіс, Grafana лише читає заголовки від nginx
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_HEADERS: Role:X-WEBAUTH-ROLE
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_SIGNOUT_REDIRECT_URL: /auth/logout
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/overview.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+
+  # ---------- вхідна точка ----------
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - auth
+      - grafana
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  auth-data:
+  prom-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
