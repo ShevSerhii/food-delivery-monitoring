@@ -50,8 +50,9 @@ def setup(service: str) -> logging.Logger:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(LogfmtFormatter(service))
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), handlers=[handler])
-    # pika дуже балакучий на рівні INFO
-    logging.getLogger("pika").setLevel(logging.WARNING)
+    # pika дублює кожну невдалу спробу підключення кількома рядками ERROR,
+    # а повторні спроби ми й так логуємо самі в connections.py
+    logging.getLogger("pika").setLevel(logging.CRITICAL)
 
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if endpoint:

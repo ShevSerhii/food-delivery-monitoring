@@ -157,7 +157,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(fd_events_processed_total{event=\"delivered\",result=\"ok\"}[5m]))",
+          "expr": "sum(increase(fd_events_processed_total{event=\"delivered\",result=\"ok\"}[5m])) or vector(0)",
           "legendFormat": "",
           "refId": "A"
         }
@@ -764,7 +764,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(fd_events_processed_total{result=\"error\"}[1h]))",
+          "expr": "sum(increase(fd_events_processed_total{result=\"error\"}[1h])) or vector(0)",
           "legendFormat": "",
           "refId": "A"
         }
