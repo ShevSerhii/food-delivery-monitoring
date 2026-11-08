@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вхід - моніторинг доставки</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      background: #111217;
+      color: #d8d9da;
+    }
+    .card {
+      width: 340px;
+      padding: 32px 28px;
+      background: #181b1f;
+      border: 1px solid #2c3235;
+      border-radius: 8px;
+    }
+    h1 { margin: 0 0 4px; font-size: 20px; }
+    p.sub { margin: 0 0 24px; font-size: 13px; color: #8e8e8e; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; }
+    input {
+      width: 100%;
+      margin-bottom: 16px;
+      padding: 9px 10px;
+      font-size: 14px;
+      color: inherit;
+      background: #111217;
+      border: 1px solid #2c3235;
+      border-radius: 4px;
+    }
+    input:focus { outline: none; border-color: #f2a03d; }
+    button {
+      width: 100%;
+      padding: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #111217;
+      background: #f2a03d;
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #f5b25e; }
+    .error { min-height: 18px; margin-bottom: 12px; font-size: 13px; color: #f2495c; }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/auth/login">
+    <h1>Моніторинг доставки</h1>
+    <p class="sub">Grafana / Prometheus доступні лише після входу</p>
+    <div class="error">$error</div>
+    <label for="username">Логін</label>
+    <input id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">Пароль</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Увійти</button>
+  </form>
+</body>
+</html>
